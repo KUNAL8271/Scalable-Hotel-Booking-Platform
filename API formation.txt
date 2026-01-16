@@ -1,0 +1,860 @@
+Student.java
+----------------------
+package com.demo.entity;
+
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.Id;
+
+@Entity
+public class Student {
+	@Id
+	private long id;
+	private String name;
+	private String course;
+	private String email;
+	@Column(name="mobile", length=10,nullable=false,unique=true)
+	private String mobile;
+	public long getId() {
+		return id;
+	}
+	public void setId(long id) {
+		this.id = id;
+	}
+	public String getName() {
+		return name;
+	}
+	public void setName(String name) {
+		this.name = name;
+	}
+	public String getCourse() {
+		return course;
+	}
+	public void setCourse(String course) {
+		this.course = course;
+	}
+	public String getEmail() {
+		return email;
+	}
+	public void setEmail(String email) {
+		this.email = email;
+	}
+	public String getMobile() {
+		return mobile;
+	}
+	public void setMobile(String mobile) {
+		this.mobile = mobile;
+	}
+	
+	
+
+}
+-----------------------------
+Student_Controller.java
+-------------------------------
+package com.demo.controller;
+
+import java.util.List;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.validation.BindingResult;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+
+import com.demo.payload.StudentDto;
+import com.demo.service.StudentService;
+
+import jakarta.validation.Valid;
+
+//i can develop Rest APId
+@RestController
+public class StudentController {
+	
+	Logger log=LoggerFactory.getLogger(StudentController.class);
+	
+	@Autowired 
+	private StudentService service;
+	//Handler methods
+@PostMapping("/create")
+	public ResponseEntity<?> createStudent(@Valid @RequestBody StudentDto dto,
+			BindingResult result
+			
+			) {
+	if(result.hasErrors()) {
+		return new ResponseEntity<>(result.getFieldError().getDefaultMessage(),HttpStatus.INTERNAL_SERVER_ERROR);
+	}
+	StudentDto savedEntity =service.createStudent(dto);
+	//savedEntity.setMessage("Record is saved!!");
+	return new ResponseEntity<>(savedEntity,HttpStatus.CREATED);
+	}
+	
+	@DeleteMapping("/delete")
+	public ResponseEntity<String>deleteStudent(@RequestParam long id) {
+		service.deleteStudent(id);
+		return new ResponseEntity<>("Deleted!!",HttpStatus.OK);
+		 
+	
+	}
+	
+	@PutMapping("/update")
+	public ResponseEntity<StudentDto>updateStudent(@RequestBody StudentDto dto){
+		StudentDto studentDto=service.updateStudent(dto);
+		return new ResponseEntity<>(studentDto,HttpStatus.OK);
+		
+	}
+	@GetMapping("/findAllStudents")
+	public ResponseEntity<List<StudentDto>> getAllStudents(){
+	List<StudentDto> dtos=service.getStudents();
+	return new ResponseEntity<>(dtos, HttpStatus.OK);	
+	}
+	
+	@GetMapping("/studentById")
+	public ResponseEntity<?> getStudentById(@RequestParam long id){
+		log.info("inside getStudentByID() method");
+	StudentDto dto=service.getStudentById(id);
+	if(dto==null) {
+		log.error("No record find for id :"+id);
+		return new ResponseEntity<>("No Record found", HttpStatus.OK);
+
+	}
+	log.info("Record found");
+	return new ResponseEntity<>(dto, HttpStatus.OK);	
+	
+	
+	}
+	@GetMapping("/StudentByEmail")
+	public ResponseEntity<?>getStudentByEmail(@RequestParam String email){
+		log.info("Search record by email id: "+email);
+		boolean val=service.verifyStudentByEmail(email);
+		log.info("Record found:==>"+val);
+		StudentDto dto=service.getStudentByEmail(email);
+		if(dto==null) {
+			return new ResponseEntity<>("No Record found", HttpStatus.OK);
+
+		}
+		return new ResponseEntity<>(dto, HttpStatus.OK);	
+		
+	}
+	
+	@GetMapping("/filterStudentByCourse")
+	
+	public ResponseEntity<List<StudentDto>>filterStudentByCourse(@RequestParam String course){
+		List<StudentDto> dtos=service.filterStudentByCourse(course);
+		return new ResponseEntity<>(dtos, HttpStatus.OK);	
+	}
+	@GetMapping("/filterStudentByEmailAndMobile")
+	public ResponseEntity<?>filterStudentByEmailAndMobile(@RequestParam String email,@RequestParam String mobile){
+		StudentDto dto=service.filterStudentByEmailAndMobile(email,mobile);
+		if(dto==null) {
+			return new ResponseEntity<>("No Record found", HttpStatus.OK);
+
+		}
+		return new ResponseEntity<>(dto,HttpStatus.OK);
+	}
+	
+	
+	@GetMapping("/filterStudentByEmailOrMobile")
+	public ResponseEntity<?>filterStudentByEmailOrMobile(@RequestParam String email,@RequestParam String mobile){
+		List<StudentDto> dtos=service.filterStudentByEmailOrMobile(email,mobile);
+		
+		return new ResponseEntity<>(dtos,HttpStatus.OK);
+	}
+	
+	@GetMapping("/filterStudentByContainingName")
+	public ResponseEntity<?>filterStudentByContainingName(@RequestParam String name){
+		List<StudentDto> dtos=service.filterStudentByContainingNanme(name);
+		
+		return new ResponseEntity<>(dtos,HttpStatus.OK);
+	}
+	
+	
+	
+	
+	
+}
+---------------------------------------------
+Student Service
+------------------------------------------
+package com.demo.service;
+
+import java.util.List;
+import java.util.Optional;
+import java.util.stream.Collectors;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.BeanUtils;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+
+import com.demo.entity.Student;
+import com.demo.exception.ResourceNotfoundException;
+import com.demo.payload.StudentDto;
+import com.demo.repository.StudentRepo;
+
+//service layer is called Model Layer.
+@Service
+public class StudentService {
+	Logger log=LoggerFactory.getLogger(StudentService.class);
+	
+	//Database Operation
+	//Create Repository layer- This layer will provide utility methods like save() to perform
+	//db operation like CRUD on Entity class object
+	//a.save()-Entity object will be saved in database.
+	//b.deleteById(id)-We can delete data from database
+	
+	//Dependency Injection for Repository layer
+	
+	@Autowired
+	private StudentRepo repo;
+	
+	
+	
+	public StudentDto createStudent(StudentDto dto) {
+		Student s=new Student();
+		//s.setId(dto.getId());
+		//s.setName(dto.getName());
+		//s.setEmail(dto.getEmail());
+		//s.setCourse(dto.getCourse());
+		BeanUtils.copyProperties(dto, s);
+		Student savedEntity=repo.save(s); //--->ORM saves that in the database
+		BeanUtils.copyProperties(savedEntity,dto);
+		return dto;
+	}
+
+
+
+	public void deleteStudent(long id) {
+		repo.deleteById(id);
+		
+	}
+
+
+
+	public StudentDto updateStudent(StudentDto dto) {
+		Student s=new Student();
+		BeanUtils.copyProperties(dto,s);
+		Student savedEntity=repo.save(s);
+		BeanUtils.copyProperties(savedEntity,dto);
+		return dto;
+	}
+
+/*
+
+	public List<StudentDto> getStudents() {
+		List<StudentDto> dto=new ArrayList<>();
+		StudentDto studentDto=new StudentDto(); //only one object created
+		Iterable<Student> students=repo.findAll();
+		for(Student student:students) {
+			BeanUtils.copyProperties(student,studentDto);
+			dto.add(studentDto);
+		}
+		
+		return dto;
+	}*/
+	public List<StudentDto> getStudents() {
+	    
+		List<Student> students=repo.findAll();
+		List<StudentDto> dtos=students.stream().map(s->convertToDto(s)).collect(Collectors.toList());
+	   
+	    return dtos;
+	}
+
+	public StudentDto convertToDto(Student s) {
+		StudentDto dto=new StudentDto();
+		BeanUtils.copyProperties(s, dto);
+		return dto;
+		
+	}
+
+
+
+	public StudentDto getStudentById(long id) {
+		log.info("inside servide layer getStudentById()");
+		Student student=repo.findById(id).orElseThrow(
+				()->new ResourceNotfoundException("Record not found with id: "+id)
+				);
+		
+		return convertToDto(student);
+		
+		//comment this because of exception handling
+		/*Optional<Student> opStudent=repo.findById(id);
+		if(opStudent.isPresent()) {
+			Student student=opStudent.get();
+			log.info("Found record :" + student.getId() +" "+student.getName());
+			return convertToDto(student);
+		}
+		log.error("Record not found");
+		return null;*/
+		
+	}
+
+
+
+	public StudentDto getStudentByEmail(String email) {
+		Optional<Student> opStudent=repo.searchByEmail(email);
+		if(opStudent.isPresent()) {
+			Student student=opStudent.get();
+			return converttoDto(student);
+		}
+		return null;
+	}
+	public StudentDto converttoDto(Student s) {
+		StudentDto dto=new StudentDto();
+		BeanUtils.copyProperties(s, dto);
+		return dto;
+		
+	}
+
+
+
+	public List<StudentDto> filterStudentByCourse(String course) {
+		List<Student> students=repo.searchByCourse(course);
+		//convert list of student to dto
+		List<StudentDto> dtos=students.stream().map(s->convertToDto(s)).collect(Collectors.toList());
+		   
+		return dtos;
+	}
+
+
+
+	public StudentDto filterStudentByEmailAndMobile(String email, String mobile) {
+		Optional<Student> opStudent =repo.searchByEmailAndMobile(email, mobile);
+		if(opStudent.isPresent()) {
+			Student student=opStudent.get();
+			return convertToDto(student);
+		}
+		return null;
+	}
+
+
+
+	public List<StudentDto> filterStudentByEmailOrMobile(String email, String mobile) {
+		List<Student>students=repo.findByEmailOrMobile(email, mobile);
+		List<StudentDto> dtos=students.stream().map(s->convertToDto(s)).collect(Collectors.toList());
+		   
+		return dtos;
+		
+	}
+
+
+
+	public List<StudentDto> filterStudentByContainingNanme(String name) {
+		List<Student>student=repo.findByNameContainingIgnoreCase(name);
+		List<StudentDto> dtos=student.stream().map(s->convertToDto(s)).collect(Collectors.toList());
+		   
+		return dtos;
+		
+	}
+
+
+
+	public boolean verifyStudentByEmail(String email) {
+		return repo.existsByEmail(email);
+		
+	}
+	
+	
+
+
+	
+
+
+	
+
+
+	
+
+	
+
+}
+------------------------------------------------
+StudentRepo
+------------------------------------------------
+package com.demo.repository;
+
+import java.util.List;
+import java.util.Optional;
+
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+
+import com.demo.entity.Student;
+
+//Repository layer
+public interface StudentRepo extends JpaRepository<Student, Long> {
+
+	Optional<Student> findByEmail(String email);
+	List<Student>findByCourse(String java);
+	Optional<Student>findByEmailAndMobile(String email, String mobile);
+	List<Student>findByEmailOrMobile(String email, String mobile);
+	
+	List<Student>findByNameContainingIgnoreCase(String name);
+	
+	//@query Examples
+	
+	@Query("select s from Student s where s.email=:x")
+	Optional<Student> searchByEmail(@Param("x") String email);
+	
+	@Query("select s from Student s where s.course=:y")
+	List<Student> searchByCourse(@Param("y")String course);
+	
+	@Query("select s from Student s where s.email=:x and s.mobile=:y")
+	Optional<Student> searchByEmailAndMobile(@Param("x")String email, @Param("y")String mobile);
+	
+	//check true or false
+	boolean existsByEmail(String email);
+	
+}
+---------------------------------------------
+StudentDto
+---------------------------------------------
+package com.demo.payload;
+
+import jakarta.validation.constraints.Email;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
+
+public class StudentDto {
+	
+	private long id;
+	@NotNull
+	@Size(min=2,max=10,message="Should be atleast 2 characters")
+	private String name;
+	private String course;
+	@Email
+	private String email;
+	@Size(min=10,max=10,message="should be 10 digits")
+	private String mobile;
+	
+	
+	public long getId() {
+		return id;
+	}
+	public void setId(long id) {
+		this.id = id;
+	}
+	public String getName() {
+		return name;
+	}
+	public void setName(String name) {
+		this.name = name;
+	}
+	public String getCourse() {
+		return course;
+	}
+	public void setCourse(String course) {
+		this.course = course;
+	}
+	public String getEmail() {
+		return email;
+	}
+	public void setEmail(String email) {
+		this.email = email;
+	}
+	public String getMobile() {
+		return mobile;
+	}
+	public void setMobile(String mobile) {
+		this.mobile = mobile;
+	}
+	
+	
+	
+
+}
+
+---------------------------------------
+GlobalException
+----------------------------------------
+package com.demo.exception;
+
+import java.util.Date;
+
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.ControllerAdvice;
+import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.context.request.WebRequest;
+
+import com.demo.payload.ErrorDetails;
+
+@ControllerAdvice
+public class GlobalExceptionHandler {
+	
+	@ExceptionHandler(Exception.class)
+public ResponseEntity<ErrorDetails> handleException(
+		Exception e,
+		WebRequest request
+		){
+		ErrorDetails error =new ErrorDetails(e.getMessage(),new Date(),request.getDescription(true));
+		return new ResponseEntity<>(error,HttpStatus.INTERNAL_SERVER_ERROR);
+	
+}
+	
+	@ExceptionHandler(ResourceNotfoundException.class)
+	public ResponseEntity<ErrorDetails> handleResourceNotFoundException(
+			ResourceNotfoundException e,
+			WebRequest request
+			){
+			ErrorDetails error =new ErrorDetails(e.getMessage(),new Date(),request.getDescription(true));
+			return new ResponseEntity<>(error,HttpStatus.INTERNAL_SERVER_ERROR);
+		
+	}
+}
+-----------------------------------------------
+ErrorDetails
+-------------------------------------------
+package com.demo.payload;
+
+import java.util.Date;
+
+public class ErrorDetails {
+	
+	private String message;
+	private Date date;
+	private String url;
+	public ErrorDetails(String message, Date date, String url) {
+		//super();
+		this.message = message;
+		this.date = date;
+		this.url = url;
+	}
+	public String getMessage() {
+		return message;
+	}
+	public Date getDate() {
+		return date;
+	}
+	public String getUrl() {
+		return url;
+	}
+
+}
+
+------------------------------------------------------------------------------
+ResourceNotfound
+------------------------------------------------------
+package com.demo.exception;
+
+public class ResourceNotfoundException extends RuntimeException {
+
+	public ResourceNotfoundException(String message) {
+		super(message);
+	}
+	
+
+}
+---------------------------------------
+
+PAGINATION
+----------------------------
+@GetMapping("/findAllStudents")
+	public ResponseEntity<List<StudentDto>> getAllStudents(
+			@RequestParam(name="pageno",defaultValue="0",required=false)int pageNo,
+			@RequestParam(name="pageSize",defaultValue="5",required=false)int pageSize,
+			@RequestParam(name="sortBy",defaultValue="id", required=false)String sortBy,
+			@RequestParam(name="sortDir",defaultValue="asc",required=false)String sortDir
+			){
+	List<StudentDto> dtos=service.getStudents(pageNo,pageSize,sortBy,sortDir);
+	return new ResponseEntity<>(dtos, HttpStatus.OK);	
+	}
+
+Servicelayercode
+------------------
+public List<StudentDto> getStudents(int pageNo, int pageSize, String sortBy, String sortDir) {
+		
+		Sort sort=Sort.by(sortBy);
+		if(sortDir.equals("asc")) {
+			sort=sort.ascending();
+			
+		}
+		if(sortDir.equals("desc")) {
+			sort=sort.descending();
+		}
+		Pageable pageable=PageRequest.of(pageNo, pageSize,sort);
+	    Page<Student> page=repo.findAll(pageable);
+	    List<Student>students=page.getContent();
+	    
+		List<StudentDto> dtos=students.stream().map(s->convertToDto(s)).collect(Collectors.toList());
+	   
+	    return dtos;
+	}
+----------------------------------
+ROUND 1: BASIC SPRING BOOT QUESTIONS
+
+Q1. What is Spring Boot?
+
+Answer:
+Spring Boot is a framework built on top of Spring that simplifies application development by:
+
+Auto-configuration
+
+Embedded servers (Tomcat)
+
+Production-ready features
+Q2. Why did you use Spring Boot instead of Spring MVC?
+
+Answer:
+
+No XML configuration
+
+Embedded Tomcat
+
+Faster development
+
+Auto-configuration
+
+Q3. What is @RestController?
+
+Answer:
+It is a combination of:
+
+@Controller
+
+@ResponseBody
+Used to return JSON/XML response directly.
+----------------------------------------
+ROUND 2: PROJECT ARCHITECTURE QUESTIONS
+------------------------------------------
+Q4. Explain your project architecture.
+
+Answer:
+My project follows layered architecture:
+
+Controller – Handles HTTP requests
+
+Service – Business logic
+
+Repository – Database operations
+
+Entity – Table mapping
+
+DTO – Data transfer & validation
+
+Q5. Why did you create StudentDto when you already have Student entity?
+
+Answer:
+
+To avoid exposing DB structure
+
+To apply validation
+
+Loose coupling between layers
+
+Better security
+
+Q6. Difference between Entity and DTO?
+| Entity                  | DTO                        |
+| ----------------------- | -------------------------- |
+| Maps to DB table        | Used for data transfer     |
+| Used by Hibernate       | Used by Controller         |
+| Can have DB annotations | Has validation annotations |
+-------------------------------------------------------
+ROUND 3: JPA & DATABASE QUESTIONS
+------------------------------------------------------
+
+Q7. What is JPA?
+
+Answer:
+JPA is a specification for ORM that allows mapping Java objects to relational tables.
+
+Q8. What is JpaRepository?
+
+Answer:
+It provides ready-made CRUD methods like:
+
+save()
+
+findById()
+
+findAll()
+
+deleteById()
+
+Q9. Difference between findByEmail() and @Query?
+
+Answer:
+
+findByEmail() → Derived query
+
+@Query → Custom JPQL query
+
+Q10. What is JPQL?
+
+Answer:
+JPQL works on entity objects and fields, not database tables.
+
+---------------------------------------------------------------------
+ROUND 4: OPTIONAL & EXCEPTION HANDLING
+-------------------------------------------------------------------
+Q11. Why did you use Optional<Student>?
+
+Answer:
+To avoid NullPointerException and handle absent values safely.
+
+Q12. How do you handle record-not-found scenarios?
+
+Answer:
+By throwing a custom exception ResourceNotfoundException and handling it using @ControllerAdvice.
+
+
+Q13. What is @ControllerAdvice?
+
+Answer:
+It is used for global exception handling across all controllers.
+
+-------------------------------------------------------
+ROUND 5: VALIDATION QUESTIONS
+--------------------------------------------------
+Q14. How validation works in your project?
+
+Answer:
+
+Validation rules are defined in DTO
+
+@Valid triggers validation
+
+BindingResult captures errors
+
+Q15. What happens if validation fails?
+
+Answer:
+Controller returns error message without calling service layer.
+------------------------------------------------------
+ROUND 6: STREAM API & MAPPING
+------------------------------------------------------
+Q16. Why did you use Stream API instead of for-loop?
+
+Answer:
+
+Cleaner code
+
+Avoid object reuse bug
+
+Functional programming style
+
+Q17. What problem did your commented code have?
+
+Answer:
+It reused the same DTO object inside loop, causing duplicate data.
+----------------------------------------------------------------------
+ROUND 7: PAGINATION & SORTING (IMPORTANT)
+-----------------------------------------------------------------
+Q18. Why pagination is required?
+
+Answer:
+To improve performance when handling large datasets.
+
+
+Q19. What is PageRequest.of()?
+
+Answer:
+It creates a pageable object with:
+
+Page number
+
+Page size
+
+Sorting
+
+Q20. Difference between Page and List?
+
+Answer:
+
+List → Only data
+
+Page → Data + total pages + metadata
+--------------------------------------------
+ROUND 8: LOGGING QUESTIONS
+-------------------------------------
+Q21. Why did you use SLF4J Logger?
+
+Answer:
+To log application flow, errors, and debug information instead of System.out.println().
+
+Q22. Logging levels used?
+
+Answer:
+
+INFO
+
+ERROR
+
+DEBUG
+
+WARN
+------------------------------------------------
+ROUND 9: HTTP & REST QUESTIONS
+-------------------------------------------------
+Q23. Why ResponseEntity?
+
+Answer:
+To control:
+
+HTTP status codes
+
+Response body
+
+Headers
+
+Q24. Difference between PUT and POST?
+
+| POST            | PUT             |
+| --------------- | --------------- |
+| Create resource | Update resource |
+| Not idempotent  | Idempotent      |
+-------------------------------------------
+ROUND 10: ADVANCED FOLLOW-UP QUESTIONS
+---------------------------------------------
+Q25. What happens internally when repo.save() is called?
+
+Answer:
+Hibernate:
+
+Converts object to SQL
+
+Opens transaction
+
+Executes INSERT/UPDATE
+
+Commits transaction
+
+Q26. How do you prevent duplicate email?
+
+Answer:
+Using:
+
+Unique constraint
+
+existsByEmail() check
+--------------------------------
+HR ROUND QUESTIONS (BASED ON YOUR PROJECT)
+-----------------------------------------------
+Q28. Explain your role in this project.
+
+Answer:
+I designed REST APIs, implemented validation, pagination, exception handling, and optimized data mapping using Stream API.
+
+Q29. Biggest challenge you faced?
+
+Answer:
+Handling null values and avoiding object reuse during entity-to-DTO mapping.
+
+Q30. Why should we hire you?
+I have hands-on experience in Spring Boot REST APIs, understand best practices, and can contribute immediately.
+
+
+
+
+
